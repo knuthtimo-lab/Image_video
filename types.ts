@@ -1,4 +1,3 @@
-
 export interface AdFormat {
   id: string;
   name: string;
@@ -19,6 +18,7 @@ export interface AdVariation {
 
 export interface GeneratedAd {
   id: string;
+  formatId: string;
   imageUrl: string;
   text: string;
   originalPrompt: string;

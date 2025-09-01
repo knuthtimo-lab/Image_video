@@ -1,7 +1,8 @@
+
 import React, { useState, useCallback } from 'react';
 import { AdFormat, GeneratedAd, AdVariation } from './types';
 import { AD_FORMAT_CATEGORIES } from './constants';
-import { generateAdImage, generateSlogan, editAdImage } from './services/geminiService';
+import { generateAdImage, generateSlogan, editAdImage, generateImageFromText } from './services/geminiService';
 import Header from './components/Header';
 import ImageUploader from './components/ImageUploader';
 import AdFormatSelector from './components/AdFormatSelector';
@@ -22,6 +23,7 @@ export default function App() {
   const [generatingVariationsForAdId, setGeneratingVariationsForAdId] = useState<string | null>(null);
   const [isEditModalOpen, setIsEditModalOpen] = useState<boolean>(false);
   const [editingAd, setEditingAd] = useState<GeneratedAd | null>(null);
+  const [isGeneratingProductImage, setIsGeneratingProductImage] = useState<boolean>(false);
 
   const handleImageUpload = useCallback((file: File) => {
     const reader = new FileReader();
@@ -38,6 +40,22 @@ export default function App() {
       setError("Failed to read the image file.");
     };
     reader.readAsDataURL(file);
+  }, []);
+  
+  const handleGenerateFromText = useCallback(async (prompt: string) => {
+    setIsGeneratingProductImage(true);
+    setError(null);
+    try {
+      const { base64Image, mimeType } = await generateImageFromText(prompt);
+      setProductImageBase64(base64Image);
+      setProductImageMimeType(mimeType);
+      setGeneratedAds([]);
+      setSlogan('');
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to generate image from text.");
+    } finally {
+      setIsGeneratingProductImage(false);
+    }
   }, []);
 
   const handleGenerateSlogan = useCallback(async () => {
@@ -68,14 +86,30 @@ export default function App() {
     setActiveAdFormatId(format.id);
     setError(null);
 
+    const existingAdsCount = generatedAds.filter(ad => ad.formatId === format.id).length;
+    let finalPrompt = format.prompt;
+
+    if (existingAdsCount > 0) {
+      const variationPrompts = [
+        ", with a different color scheme and a complementary background.",
+        ", from a slightly different camera angle and with more dramatic lighting.",
+        ", in a minimalist style with a focus on clean lines and negative space.",
+        ", with a vibrant, playful and energetic feel.",
+        ", but set in a different season, for example, autumn instead of summer.",
+      ];
+      const variationSuffix = variationPrompts[(existingAdsCount - 1) % variationPrompts.length];
+      finalPrompt = `${format.prompt}${variationSuffix}`;
+    }
+
     try {
-      const result = await generateAdImage(productImageBase64, productImageMimeType, format.prompt, slogan);
+      const result = await generateAdImage(productImageBase64, productImageMimeType, finalPrompt, slogan);
       const newAd: GeneratedAd = {
         id: `${format.id}-${Date.now()}`,
+        formatId: format.id,
         imageUrl: result.imageUrl,
         text: result.text,
         originalPrompt: format.prompt,
-        formatName: format.name,
+        formatName: `${format.name}${existingAdsCount > 0 ? ` (Variation ${existingAdsCount})` : ''}`,
         slogan: slogan,
         variations: [],
       };
@@ -87,7 +121,7 @@ export default function App() {
       setIsLoading(false);
       setActiveAdFormatId(null);
     }
-  }, [productImageBase64, productImageMimeType, isLoading, slogan]);
+  }, [productImageBase64, productImageMimeType, isLoading, slogan, generatedAds]);
 
   const handleGenerateVariations = useCallback(async (adId: string) => {
     const adToVary = generatedAds.find(ad => ad.id === adId);
@@ -97,10 +131,39 @@ export default function App() {
     setError(null);
 
     try {
-        const variationPrompts = [
-            `${adToVary.originalPrompt}, with a slightly different composition and viewpoint.`,
-            `${adToVary.originalPrompt}, in a different but complementary visual style.`
+        const allVariationPrompts = [
+            // Style Variations
+            `${adToVary.originalPrompt}, but reimagined in a bold, Andy Warhol-inspired pop art style, with repeating patterns and vibrant, saturated colors.`,
+            `${adToVary.originalPrompt}, but visualized as a beautiful watercolor painting, with soft edges, gentle color washes, and an artistic, handcrafted feel.`,
+            `${adToVary.originalPrompt}, but with an Art Deco aesthetic, featuring glamorous geometric patterns, gold accents, and a sense of Roaring Twenties luxury.`,
+            `${adToVary.originalPrompt}, but in a gritty, high-contrast 'film noir' style, using dramatic shadows and a black-and-white color palette.`,
+            `${adToVary.originalPrompt}, but with a whimsical, illustrative style, as if it's a page from a charming children's storybook.`,
+            `${adToVary.originalPrompt}, but in a retro-futuristic style with neon accents, chrome details, and a synthwave vibe.`,
+
+            // Lighting & Mood Variations
+            `${adToVary.originalPrompt}, but captured during the 'golden hour' just before sunset, with warm, soft light and long, dramatic shadows.`,
+            `${adToVary.originalPrompt}, but with a moody, cinematic atmosphere using high-contrast, dramatic lighting to create a sense of mystery.`,
+            `${adToVary.originalPrompt}, but using minimalist studio lighting with a single light source, creating sharp, clean shadows on a seamless background.`,
+            
+            // Composition & Framing Variations
+            `${adToVary.originalPrompt}, but as an extreme close-up shot that highlights the product's intricate details, textures, and craftsmanship.`,
+            `${adToVary.originalPrompt}, but using a Dutch angle camera tilt to create a dynamic, edgy, and unconventional composition.`,
+            `${adToVary.originalPrompt}, but with the product framed by natural elements, like leaves or flowers, creating a sense of depth and organic beauty.`,
+            `${adToVary.originalPrompt}, but photographed with a shallow depth of field, making the product razor-sharp while the background is beautifully blurred into an abstract wash of color.`,
+
+            // Background & Environment Variations
+            `${adToVary.originalPrompt}, but with the background changed to a surreal, dream-like landscape where the laws of physics are bent, similar to a Salvador Dalí painting.`,
+            `${adToVary.originalPrompt}, but placed against a rugged, industrial background of weathered concrete and rusted metal, creating a powerful contrast.`,
+            `${adToVary.originalPrompt}, but set within a minimalist zen garden, with raked sand, smooth stones, and a feeling of tranquility.`,
+            
+            // Color Palette Variations
+            `${adToVary.originalPrompt}, but with a completely different color palette, focusing on cool, calming tones like blues, greens, and purples.`,
+            `${adToVary.originalPrompt}, but using a striking monochromatic color scheme, with various shades and tints of a single bold color.`,
         ];
+        
+        // Shuffle the array and pick the first 2 to generate
+        const shuffledPrompts = allVariationPrompts.sort(() => 0.5 - Math.random());
+        const variationPrompts = shuffledPrompts.slice(0, 2);
 
         const variationPromises = variationPrompts.map(prompt => 
             generateAdImage(productImageBase64, productImageMimeType, prompt, adToVary.slogan)
@@ -194,7 +257,19 @@ export default function App() {
       <main className="flex-grow container mx-auto px-4 py-8">
         <div className="max-w-5xl mx-auto">
           {!productImageBase64 ? (
-            <ImageUploader onImageUpload={handleImageUpload} />
+            <div>
+              <ImageUploader 
+                onImageUpload={handleImageUpload}
+                onGenerateFromText={handleGenerateFromText}
+                isGenerating={isGeneratingProductImage}
+              />
+              {error && (
+                <div className="bg-red-900 border border-red-700 text-red-200 px-4 py-3 rounded-lg relative mt-6" role="alert">
+                  <strong className="font-bold">Error: </strong>
+                  <span className="block sm:inline">{error}</span>
+                </div>
+              )}
+            </div>
           ) : (
             <div>
               <div className="mb-8 p-6 bg-gray-800 border border-gray-700 rounded-2xl shadow-lg">
